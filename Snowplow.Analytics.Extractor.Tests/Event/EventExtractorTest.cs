@@ -812,7 +812,7 @@ namespace Snowplow.Analytics.Extractor.Tests
                     switch (fieldType)
                     {
                         case FieldTypes.Property_Boolean:
-                            columns.Add(new USqlColumn<bool>(key));
+                            columns.Add(new USqlColumn<bool?>(key));
                             break;
 
                         case FieldTypes.Property_Double:
@@ -865,15 +865,10 @@ namespace Snowplow.Analytics.Extractor.Tests
             {
                 //Read input file 
                 USqlStreamReader reader = new USqlStreamReader(stream);
-
                 EventExtractor extractor = new EventExtractor();
                 List<IRow> result = extractor.Extract(reader, output).ToList();
-
-                var res = result[0];
-                var keys = expected.Properties().Select(p => p.Name).ToList();
                 Assert.IsTrue(CompareValues(expected, result[0]));
             }
-
         }
 
         [TestMethod]
@@ -892,12 +887,8 @@ namespace Snowplow.Analytics.Extractor.Tests
 
                 EventExtractor extractor = new EventExtractor();
                 List<IRow> result = extractor.Extract(reader, output).ToList();
-
-                var res = result[0];
-                var keys = expected.Properties().Select(p => p.Name).ToList();
                 Assert.IsTrue(CompareValues(expected, result[0]));
             }
-
         }
 
         private static bool CompareValues(JObject expectedObject, IRow actual)

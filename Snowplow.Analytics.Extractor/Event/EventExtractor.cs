@@ -186,6 +186,101 @@ namespace Snowplow.Analytics.Extractor
             {
                 while ((line = reader.ReadLine()) != null)
                 {
+
+                    //check for schema
+                    var totalCount = output.Schema.Count;
+                    var errors = new List<string>();
+                    for (int i = 0; i < totalCount; i++)
+                    {
+                        var columnName = output.Schema[i].Name;
+                        var actualColumnType = output.Schema[i].Type;
+                        FieldTypes expectedColumnType;
+
+                        if (ENRICHED_EVENT_FIELD_TYPES.TryGetValue(columnName, out expectedColumnType))
+                        {
+                            switch (expectedColumnType)
+                            {
+                                case FieldTypes.Property_Boolean:
+                                    if (actualColumnType != typeof(bool?))
+                                    {
+                                        errors.Add($"Invalid columnType {actualColumnType} for columnName {columnName}; expected columnType: {typeof(bool?)}");
+                                    }
+                                    break;
+                                case FieldTypes.Property_Int32:
+                                    if (actualColumnType != typeof(int?))
+                                    {
+                                        errors.Add($"Invalid columnType {actualColumnType} for columnName {columnName}; expected columnType: {typeof(int?)}");
+                                    }
+                                    break;
+                                case FieldTypes.Property_Double:
+                                    if (actualColumnType != typeof(double?))
+                                    {
+                                        errors.Add($"Invalid columnType {actualColumnType} for columnName {columnName}; expected columnType: {typeof(double?)}");
+                                    }
+                                    break;
+                                case FieldTypes.Property_DateTime:
+                                    if (actualColumnType != typeof(DateTime?))
+                                    {
+                                        errors.Add($"Invalid columnType {actualColumnType} for columnName {columnName}; expected columnType: {typeof(DateTime?)}");
+                                    }
+                                    break;
+                                case FieldTypes.Property_String:
+                                    if (actualColumnType != typeof(string))
+                                    {
+                                        errors.Add($"Invalid columnType {actualColumnType} for columnName {columnName}; expected columnType: {typeof(string)}");
+                                    }
+                                    break;
+                                case FieldTypes.Property_SqlArray:
+                                    if (actualColumnType != typeof(SqlArray<object>))
+                                    {
+                                        errors.Add($"Invalid columnType {actualColumnType} for columnName {columnName}; expected columnType: {typeof(SqlArray<object>)}");
+                                    }
+                                    break;
+                                case FieldTypes.Property_SqlMap:
+                                    if (actualColumnType != typeof(SqlMap<string, object>))
+                                    {
+                                        errors.Add($"Invalid columnType {actualColumnType} for columnName {columnName}; expected columnType: {typeof(SqlMap<string, object>)}");
+                                    }
+                                    break;
+                                default:
+                                    errors.Add($"Invalid columnName {columnName}");
+                                    break;
+                            }
+                        }
+                        else
+                        {
+                            var contextKey = "contexts";
+                            var unstructKey = "unstruct";
+                            if (string.Compare(contextKey, columnName.Substring(0, contextKey.Length)) == 0)
+                            {
+                                if (actualColumnType != typeof(SqlArray<SqlMap<string, object>>))
+                                {
+                                    errors.Add($"Invalid columnType {actualColumnType} for columnName {columnName}; expected columnType: {typeof(SqlArray<SqlMap<string, object>>)}");
+                                }
+
+                            }
+                            else if (string.Compare(unstructKey, columnName.Substring(0, unstructKey.Length)) == 0)
+                            {
+                                if (actualColumnType != typeof(SqlMap<string, object>))
+                                {
+                                    errors.Add($"Invalid columnType {actualColumnType} for columnName {columnName}; expected columnType: {typeof(SqlMap<string, object>)}");
+                                }
+                            }
+                            else
+                            {
+                                errors.Add($"Invalid columnName {columnName}");
+                            }
+
+                        }
+
+                    }
+
+                    if (errors.Count() > 0)
+                    {
+                        throw new SnowplowEventExtractionException(errors);
+                    }
+
+
                     try
                     {
                         string json = EventTransformer.Transform(line);
@@ -201,7 +296,7 @@ namespace Snowplow.Analytics.Extractor
         }
 
 
-        private void ExtractJson(string json, IUpdatableRow output)
+        private static void ExtractJson(string json, IUpdatableRow output)
         {
             JObject transformedEvent = JObject.Parse(json);
             var properties = transformedEvent.Properties().Select(p => p.Name).ToList();
