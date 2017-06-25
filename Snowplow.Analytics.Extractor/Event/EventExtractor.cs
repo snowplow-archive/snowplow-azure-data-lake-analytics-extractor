@@ -36,9 +36,10 @@ namespace Snowplow.Analytics.Extractor
             Property_Boolean = 0,
             Property_Int32 = 1,
             Property_Double = 2,
-            Property_String = 3,
-            Property_SqlArray = 4,
-            Property_SqlMap = 5
+            Property_DateTime = 3,
+            Property_String = 4,
+            Property_SqlArray = 5,
+            Property_SqlMap = 6
         }
 
         private static readonly Dictionary<string, FieldTypes>
@@ -46,9 +47,9 @@ namespace Snowplow.Analytics.Extractor
             {
                 {"app_id", FieldTypes.Property_String},
                 {"platform", FieldTypes.Property_String},
-                {"etl_tstamp", FieldTypes.Property_String},
-                {"collector_tstamp", FieldTypes.Property_String},
-                {"dvce_created_tstamp", FieldTypes.Property_String},
+                {"etl_tstamp", FieldTypes.Property_DateTime},
+                {"collector_tstamp", FieldTypes.Property_DateTime},
+                {"dvce_created_tstamp", FieldTypes.Property_DateTime},
                 {"event", FieldTypes.Property_String},
                 {"event_id", FieldTypes.Property_String},
                 {"txn_id", FieldTypes.Property_Int32},
@@ -164,18 +165,18 @@ namespace Snowplow.Analytics.Extractor
                 {"mkt_clickid", FieldTypes.Property_String},
                 {"mkt_network", FieldTypes.Property_String},
                 {"etl_tags", FieldTypes.Property_String},
-                {"dvce_sent_tstamp", FieldTypes.Property_String},
+                {"dvce_sent_tstamp", FieldTypes.Property_DateTime},
                 {"refr_domain_userid", FieldTypes.Property_String},
-                {"refr_device_tstamp", FieldTypes.Property_String},
+                {"refr_device_tstamp", FieldTypes.Property_DateTime},
                 {"derived_contexts", FieldTypes.Property_SqlArray},
                 {"domain_sessionid", FieldTypes.Property_String},
-                {"derived_tstamp", FieldTypes.Property_String},
+                {"derived_tstamp", FieldTypes.Property_DateTime},
                 {"event_vendor", FieldTypes.Property_String},
                 {"event_name", FieldTypes.Property_String},
                 {"event_format", FieldTypes.Property_String},
                 {"event_version", FieldTypes.Property_String},
                 {"event_fingerprint", FieldTypes.Property_String},
-                {"true_tstamp", FieldTypes.Property_String}
+                {"true_tstamp", FieldTypes.Property_DateTime}
             };
 
         public override IEnumerable<IRow> Extract(IUnstructuredReader input, IUpdatableRow output)
@@ -222,6 +223,10 @@ namespace Snowplow.Analytics.Extractor
 
                         case FieldTypes.Property_Int32:
                             output.Set(property, (int?)propertyValue);
+                            break;
+
+                        case FieldTypes.Property_DateTime:
+                            output.Set(property, (DateTime?)propertyValue);
                             break;
 
                         case FieldTypes.Property_String:
