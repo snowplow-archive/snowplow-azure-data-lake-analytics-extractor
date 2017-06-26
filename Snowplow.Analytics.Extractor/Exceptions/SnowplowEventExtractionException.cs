@@ -21,6 +21,9 @@ using System.Collections.Generic;
 
 namespace Snowplow.Analytics.Extractor.Exceptions
 {
+    /// <summary>
+    /// Signals an exception occured when extracting information from Snowplow Enriched Event
+    /// </summary>
     class SnowplowEventExtractionException : Exception
     {
         /// <summary>

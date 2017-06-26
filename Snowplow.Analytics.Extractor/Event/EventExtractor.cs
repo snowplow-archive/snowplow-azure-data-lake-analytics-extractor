@@ -31,6 +31,7 @@ namespace Snowplow.Analytics.Extractor
 {
     public class EventExtractor : IExtractor
     {
+        //enum for FieldTypes
         enum FieldTypes
         {
             Property_Boolean = 0,
@@ -42,6 +43,7 @@ namespace Snowplow.Analytics.Extractor
             Property_SqlMap = 6
         }
 
+        //contains a mapping of column names to their field types
         private static readonly Dictionary<string, FieldTypes>
             ENRICHED_EVENT_FIELD_TYPES = new Dictionary<string, FieldTypes>()
             {
@@ -179,6 +181,13 @@ namespace Snowplow.Analytics.Extractor
                 {"true_tstamp", FieldTypes.Property_DateTime}
             };
 
+        /// <summary>
+        /// Extract information from the input tsv and map it to output row
+        /// </summary>
+        /// <param name="input">Input stream of TSV</param>
+        /// <param name="output">Output row</param>
+        /// <returns>Enumerable Output Row</returns>
+        /// <exception cref="SnowplowEventExtractionException">thrown when invalid field in the input or invalid columnType in the schema is encountered.</exception>
         public override IEnumerable<IRow> Extract(IUnstructuredReader input, IUpdatableRow output)
         {
             string line;
@@ -186,7 +195,6 @@ namespace Snowplow.Analytics.Extractor
             {
                 while ((line = reader.ReadLine()) != null)
                 {
-
                     //check for schema
                     var totalCount = output.Schema.Count;
                     var errors = new List<string>();
@@ -249,6 +257,7 @@ namespace Snowplow.Analytics.Extractor
                         }
                         else
                         {
+                            //check for context and unstruct field types
                             var contextKey = "contexts";
                             var unstructKey = "unstruct";
                             if (string.Compare(contextKey, columnName.Substring(0, contextKey.Length)) == 0)
@@ -257,7 +266,6 @@ namespace Snowplow.Analytics.Extractor
                                 {
                                     errors.Add($"Invalid columnType {actualColumnType} for columnName {columnName}; expected columnType: {typeof(SqlArray<SqlMap<string, object>>)}");
                                 }
-
                             }
                             else if (string.Compare(unstructKey, columnName.Substring(0, unstructKey.Length)) == 0)
                             {
@@ -270,21 +278,17 @@ namespace Snowplow.Analytics.Extractor
                             {
                                 errors.Add($"Invalid columnName {columnName}");
                             }
-
                         }
-
                     }
-
                     if (errors.Count() > 0)
                     {
                         throw new SnowplowEventExtractionException(errors);
                     }
-
-
                     try
                     {
+                        //transform the input TSV
                         string json = EventTransformer.Transform(line);
-                        ExtractJson(json, output);
+                        ExtractDataFromJson(json, output);
                     }
                     catch (SnowplowEventTransformationException sete)
                     {
@@ -295,8 +299,12 @@ namespace Snowplow.Analytics.Extractor
             }
         }
 
-
-        private static void ExtractJson(string json, IUpdatableRow output)
+        /// <summary>
+        /// Extracts and maps data from JSON to a format suitable for U-SQL and fills the output with data from JSON
+        /// </summary>
+        /// <param name="json">JSON string of transformed event</param>
+        /// <param name="output">Output row</param>
+        private static void ExtractDataFromJson(string json, IUpdatableRow output)
         {
             JObject transformedEvent = JObject.Parse(json);
             var properties = transformedEvent.Properties().Select(p => p.Name).ToList();
@@ -366,6 +374,12 @@ namespace Snowplow.Analytics.Extractor
 
         }
 
+        /// <summary>
+        /// Recusrively parses all the properties of JSON object and maps it to U-SQL datatypes
+        /// </summary>
+        /// <param name="dict">Dictionary which will store the mapping</param>
+        /// <param name="obj">JSON Object to be parsed</param>
+        /// <returns>Dictionary which contains all the JSON property-value mapping</returns>
         private static Dictionary<string, object> ParseObject(Dictionary<string, object> dict, JObject obj)
         {
             var keys = obj.Properties().Select(p => p.Name).ToList();
@@ -375,7 +389,7 @@ namespace Snowplow.Analytics.Extractor
                 var type = value.Type;
                 if (type == JTokenType.Object)
                 {
-                    //if it is an object; recurse again
+                    //it is a JSON Object
                     var parseDict = ParseObject(new Dictionary<string, object>(), (JObject)value);
                     //convert dict to SqlMap
                     var sqlMap = new SqlMap<string, object>(parseDict);
@@ -383,12 +397,15 @@ namespace Snowplow.Analytics.Extractor
                 }
                 else if (type == JTokenType.Array)
                 {
+                    //it is a JSON Array
                     var parseList = ParseArray(new List<object>(), (JArray)value);
+                    //convert list of elements from JSON Array to SqlArray
                     var sqlArray = new SqlArray<object>(parseList);
                     dict[key] = sqlArray;
                 }
                 else
                 {
+                    //other types
                     switch (type)
                     {
                         case JTokenType.Boolean:
@@ -414,10 +431,15 @@ namespace Snowplow.Analytics.Extractor
                     }
                 }
             });
-
             return dict;
         }
 
+        /// <summary>
+        /// Recusrively parses the elements of JSON Array and maps it to U-SQL datatypes
+        /// </summary>
+        /// <param name="list">List which will store the elements of Array</param>
+        /// <param name="array">JSON Array</param>
+        /// <returns>List of elements from JSON Array</returns>
         private static List<object> ParseArray(List<object> list, JArray array)
         {
             foreach (var element in array)
@@ -425,7 +447,7 @@ namespace Snowplow.Analytics.Extractor
                 var type = element.Type;
                 if (type == JTokenType.Object)
                 {
-                    //if it is an object; recurse again
+                    //it is a JSON object
                     var parseDict = ParseObject(new Dictionary<string, object>(), (JObject)element);
                     //convert dict to SqlMap
                     var sqlMap = new SqlMap<string, object>(parseDict);
@@ -433,12 +455,14 @@ namespace Snowplow.Analytics.Extractor
                 }
                 else if (type == JTokenType.Array)
                 {
+                    //it is a JSON Array
                     var parseList = ParseArray(new List<object>(), (JArray)element);
                     var sqlArray = new SqlArray<object>(parseList);
                     list.Add(sqlArray);
                 }
                 else
                 {
+                    //other types
                     switch (type)
                     {
                         case JTokenType.Boolean:
@@ -466,6 +490,5 @@ namespace Snowplow.Analytics.Extractor
             }
             return list;
         }
-
     }
 }
