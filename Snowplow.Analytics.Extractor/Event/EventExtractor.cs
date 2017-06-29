@@ -29,6 +29,7 @@ using System.Linq;
 
 namespace Snowplow.Analytics.Extractor
 {
+    [SqlUserDefinedExtractor(AtomicFileProcessing = false)]
     public class EventExtractor : IExtractor
     {
         //enum for FieldTypes
