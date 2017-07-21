@@ -27,8 +27,10 @@ using System.Text;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json.Linq;
 using Newtonsoft.Json;
+using Snowplow.Analytics.Extractor.Event;
+using Snowplow.Analytics.Extractor.Exceptions;
 
-namespace Snowplow.Analytics.Extractor.Tests
+namespace Snowplow.Analytics.Extractor.Tests.Event
 {
     [TestClass]
     public class EventExtractorTest
@@ -699,13 +701,13 @@ namespace Snowplow.Analytics.Extractor.Tests
                 {"mkt_term", FieldTypes.Property_String},
                 {"mkt_content", FieldTypes.Property_String},
                 {"mkt_campaign", FieldTypes.Property_String},
-                {"contexts", FieldTypes.Property_SqlArray},
+                {"contexts", FieldTypes.Property_String},
                 {"se_category", FieldTypes.Property_String},
                 {"se_action", FieldTypes.Property_String},
                 {"se_label", FieldTypes.Property_String},
                 {"se_property", FieldTypes.Property_String},
                 {"se_value", FieldTypes.Property_String},
-                {"unstruct_event", FieldTypes.Property_SqlMap},
+                {"unstruct_event", FieldTypes.Property_String},
                 {"tr_orderid", FieldTypes.Property_String},
                 {"tr_affiliation", FieldTypes.Property_String},
                 {"tr_total", FieldTypes.Property_Double},
@@ -769,7 +771,7 @@ namespace Snowplow.Analytics.Extractor.Tests
                 {"dvce_sent_tstamp", FieldTypes.Property_DateTime},
                 {"refr_domain_userid", FieldTypes.Property_String},
                 {"refr_device_tstamp", FieldTypes.Property_DateTime},
-                {"derived_contexts", FieldTypes.Property_SqlArray},
+                {"derived_contexts", FieldTypes.Property_String},
                 {"domain_sessionid", FieldTypes.Property_String},
                 {"derived_tstamp", FieldTypes.Property_DateTime},
                 {"event_vendor", FieldTypes.Property_String},
@@ -779,25 +781,8 @@ namespace Snowplow.Analytics.Extractor.Tests
                 {"event_fingerprint", FieldTypes.Property_String},
                 {"true_tstamp", FieldTypes.Property_DateTime}
             };
-
-        private TestContext testContextInstance;
-        /// <summary>
-        ///Gets or sets the test context which provides
-        ///information about and functionality for the current test run.
-        ///</summary>
-        public TestContext TestContext
-        {
-            get
-            {
-                return testContextInstance;
-            }
-            set
-            {
-                testContextInstance = value;
-            }
-        }
-
-        public IRow RowGenerator(JObject expected)
+        
+        public IRow RowGenerator(JObject expected, Boolean isMalformed = false)
         {
             //Generate the schema
             List<IColumn> columns = new List<IColumn>();
@@ -809,42 +794,66 @@ namespace Snowplow.Analytics.Extractor.Tests
                 FieldTypes fieldType;
                 if (ENRICHED_EVENT_FIELD_TYPES.TryGetValue(key, out fieldType))
                 {
-                    switch (fieldType)
+                    if (isMalformed)
                     {
-                        case FieldTypes.Property_Boolean:
-                            columns.Add(new USqlColumn<bool?>(key));
-                            break;
+                        switch (fieldType)
+                        {
+                            case FieldTypes.Property_Boolean:
+                                columns.Add(new USqlColumn<string>(key));
+                                break;
 
-                        case FieldTypes.Property_Double:
-                            columns.Add(new USqlColumn<double?>(key));
-                            break;
+                            case FieldTypes.Property_Double:
+                                columns.Add(new USqlColumn<double?>(key));
+                                break;
 
-                        case FieldTypes.Property_Int32:
-                            columns.Add(new USqlColumn<int?>(key));
-                            break;
+                            case FieldTypes.Property_Int32:
+                                columns.Add(new USqlColumn<int?>(key));
+                                break;
 
-                        case FieldTypes.Property_DateTime:
-                            columns.Add(new USqlColumn<DateTime?>(key));
-                            break;
+                            case FieldTypes.Property_DateTime:
+                                columns.Add(new USqlColumn<int?>(key));
+                                break;
 
-                        case FieldTypes.Property_String:
-                            columns.Add(new USqlColumn<string>(key));
-                            break;
+                            case FieldTypes.Property_String:
+                                columns.Add(new USqlColumn<string>(key));
+                                break;
+                        }
+                    }
+                    else
+                    {
+                        switch (fieldType)
+                        {
+                            case FieldTypes.Property_Boolean:
+                                columns.Add(new USqlColumn<bool?>(key));
+                                break;
+
+                            case FieldTypes.Property_Double:
+                                columns.Add(new USqlColumn<double?>(key));
+                                break;
+
+                            case FieldTypes.Property_Int32:
+                                columns.Add(new USqlColumn<int?>(key));
+                                break;
+
+                            case FieldTypes.Property_DateTime:
+                                columns.Add(new USqlColumn<DateTime?>(key));
+                                break;
+
+                            case FieldTypes.Property_String:
+                                columns.Add(new USqlColumn<string>(key));
+                                break;
+                        }
                     }
                 }
                 else
                 {
                     var unstructKey = "unstruct_event_com_snowplowanalytics_snowplow_link_click_1";
                     var contextKeys = new List<string>() { "contexts_org_schema_web_page_1", "contexts_org_w3_performance_timing_1", "contexts_com_snowplowanalytics_snowplow_ua_parser_context_1" };
-                    if (contextKeys.Any(item => (string.Compare(item, key, StringComparison.CurrentCulture) == 0)))
+                    if (contextKeys.Any(item => (string.Compare(item, key, StringComparison.CurrentCulture) == 0)) ||
+                        string.Compare(unstructKey, key, StringComparison.CurrentCulture) == 0)
                     {
-                        columns.Add(new USqlColumn<SqlArray<SqlMap<string, object>>>(key));
+                        columns.Add(new USqlColumn<string>(key));
                     }
-                    else if (string.Compare(unstructKey, key, StringComparison.CurrentCulture) == 0)
-                    {
-                        columns.Add(new USqlColumn<SqlMap<string, object>>(key));
-                    }
-
                 }
 
             });
@@ -888,6 +897,34 @@ namespace Snowplow.Analytics.Extractor.Tests
                 EventExtractor extractor = new EventExtractor();
                 List<IRow> result = extractor.Extract(reader, output).ToList();
                 Assert.IsTrue(CompareValues(expected, result[0]));
+            }
+        }
+
+        [TestMethod]
+        public void TestExtractorWithMalformedColumnTypes()
+        {
+            var expected = GetOutputForInputWithoutContextAndUnstructEvent();
+            var input = GetInputWithoutContextAndUnstructEvent();
+
+            IUpdatableRow output = RowGenerator(expected, true).AsUpdatable();
+            //convert data into TSV
+            var tsv = string.Join("\t", input.Select(data => data.Value.Replace("\n", string.Empty)));
+            using (MemoryStream stream = GenerateStreamFromString(tsv))
+            {
+                //Read input file 
+                USqlStreamReader reader = new USqlStreamReader(stream);
+
+                EventExtractor extractor = new EventExtractor();
+
+                try
+                {
+                    extractor.Extract(reader, output).ToList();
+                }
+                catch(SnowplowEventExtractionException se)
+                {
+                    int errorCount = se.ErrorMessages.Count();
+                    Assert.AreEqual(18, errorCount);
+                }
             }
         }
 
@@ -949,26 +986,15 @@ namespace Snowplow.Analytics.Extractor.Tests
                  {
                      var unstructKey = "unstruct_event_com_snowplowanalytics_snowplow_link_click_1";
                      var contextKeys = new List<string>() { "contexts_org_schema_web_page_1", "contexts_org_w3_performance_timing_1", "contexts_com_snowplowanalytics_snowplow_ua_parser_context_1" };
-                     if (contextKeys.Any(item => (string.Compare(item, key, StringComparison.CurrentCulture) == 0)))
+                     if (contextKeys.Any(item => (string.Compare(item, key, StringComparison.CurrentCulture) == 0)) ||
+                        string.Compare(unstructKey, key, StringComparison.CurrentCulture) == 0
+                     )
                      {
-                         var actualArray = actual.Get<SqlArray<SqlMap<string, object>>>(key);
-                         for (int i = 0; i < expectedValue.Count(); i++)
-                         {
-                             var obj = expectedValue[i];
-                             var dict = ((JObject)obj).ToObject<Dictionary<string, object>>();
-                             var expectedMap = new SqlMap<string, object>(dict);
-                             var actualMap = actualArray[i];
-                             isEqual = CompareMap(expectedMap, actualMap);
-                         }
-
+                         var actualValue = actual.Get<string>(key);
+                         var actualToken = JToken.Parse(actualValue);
+                         isEqual = JToken.DeepEquals(expectedValue, actualToken);
                      }
-                     else if (string.Compare(unstructKey, key, StringComparison.CurrentCulture) == 0)
-                     {
-                         var actualValue = actual.Get<SqlMap<string, object>>(key);
-                         var expectedMap = ConvertObjectToSqlMap((JObject)expectedValue);
-                         isEqual = CompareMap(expectedMap, actualValue);
-                     }
-
+                  
                  }
 
              });
@@ -980,134 +1006,6 @@ namespace Snowplow.Analytics.Extractor.Tests
         {
             return new MemoryStream(Encoding.UTF8.GetBytes(value ?? ""));
         }
-
-        private static SqlMap<string, object> ConvertObjectToSqlMap(JObject obj)
-        {
-            var dict = obj.ToObject<Dictionary<string, object>>();
-            return new SqlMap<string, object>(dict);
-        }
-
-        private static SqlArray<object> ConvertArraytoSqlArray(JArray array)
-        {
-            var expectedList = array.ToList();
-            return new SqlArray<object>(expectedList);
-        }
-
-        private static bool CompareMap(SqlMap<string, object> expected, SqlMap<string, object> actual, bool isEqual = true)
-        {
-            if (!isEqual)
-            {
-                return false;
-            }
-
-            var keys = expected.Keys.ToList();
-            keys.ForEach(key =>
-            {
-                if (!isEqual)
-                {
-                    return;
-                }
-
-                var expectedValue = expected[key];
-                var actualValue = actual[key];
-                if (expectedValue == null)
-                {
-                    isEqual = (expectedValue == actualValue);
-                    return;
-                }
-                var expectedType = expectedValue.GetType();
-                if (expectedType == typeof(JObject))
-                {
-                    var expectedMap = ConvertObjectToSqlMap((JObject)expectedValue);
-                    isEqual = CompareMap(expectedMap, (SqlMap<string, object>)actualValue, isEqual);
-                }
-                else if (expectedType == typeof(JArray))
-                {
-                    var expectedArr = ConvertArraytoSqlArray((JArray)expectedValue);
-                    isEqual = CompareArray(expectedArr, (SqlArray<object>)actualValue, isEqual);
-                }
-                else
-                {
-                    if (expectedType == typeof(string))
-                    {
-                        isEqual = string.Compare((string)expectedValue, (string)actualValue) == 0;
-                    }
-                    else if (expectedType == typeof(DateTime))
-                    {
-                        isEqual = DateTime.Compare((DateTime)expectedValue, (DateTime)actualValue) == 0;
-                    }
-                    else if (expectedType == typeof(long))
-                    {
-                        isEqual = ((long)expectedValue == (long)actualValue);
-                    }
-                    else
-                    {
-                        isEqual = (expectedValue == actualValue);
-                    }
-                }
-            });
-
-            return isEqual;
-        }
-
-        private static bool CompareArray(SqlArray<object> expected, SqlArray<object> actual, bool isEqual = true)
-        {
-            if (!isEqual)
-            {
-                return false;
-            }
-            var expectedCount = expected.Count();
-            if (expectedCount != actual.Count())
-            {
-                return false;
-            }
-
-            for (int i = 0; i < expectedCount; i++)
-            {
-                if (!isEqual)
-                {
-                    return false;
-                }
-                var expectedValue = expected[i];
-                var actualValue = actual[i];
-                var expectedType = expectedValue.GetType();
-
-                if (expectedType == typeof(JObject))
-                {
-                    var expectedMap = ConvertObjectToSqlMap((JObject)expectedValue);
-                    isEqual = CompareMap(expectedMap, (SqlMap<string, object>)actualValue, isEqual);
-                }
-                else if (expectedType == typeof(JArray))
-                {
-                    var expectedArr = ConvertArraytoSqlArray((JArray)expectedValue);
-                    isEqual = CompareArray(expectedArr, (SqlArray<object>)actualValue, isEqual);
-                }
-                else
-                {
-                    var jValue = ((JToken)expectedValue);
-                    var jType = jValue.Type;
-                    if (jType == JTokenType.String)
-                    {
-                        isEqual = string.Compare(jValue.Value<string>(), (string)actualValue) == 0;
-                    }
-                    else if (jType == JTokenType.Date)
-                    {
-                        isEqual = DateTime.Compare(jValue.Value<DateTime>(), (DateTime)actualValue) == 0;
-                    }
-                    else
-                    {
-                        isEqual = expectedValue == actualValue;
-                    }
-
-                    if (!isEqual)
-                    {
-                        return isEqual;
-                    }
-                }
-
-            }
-            return isEqual;
-        }
-
+        
     }
 }

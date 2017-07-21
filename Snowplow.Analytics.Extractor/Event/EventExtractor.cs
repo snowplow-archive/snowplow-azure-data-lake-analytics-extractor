@@ -21,13 +21,14 @@ using Microsoft.Analytics.Types.Sql;
 using Newtonsoft.Json.Linq;
 using Snowplow.Analytics.Exceptions;
 using Snowplow.Analytics.Extractor.Exceptions;
+using Snowplow.Analytics.Extractor.Function;
 using Snowplow.Analytics.Json;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
-namespace Snowplow.Analytics.Extractor
+namespace Snowplow.Analytics.Extractor.Event
 {
     [SqlUserDefinedExtractor(AtomicFileProcessing = false)]
     public class EventExtractor : IExtractor
@@ -101,13 +102,13 @@ namespace Snowplow.Analytics.Extractor
                 {"mkt_term", FieldTypes.Property_String},
                 {"mkt_content", FieldTypes.Property_String},
                 {"mkt_campaign", FieldTypes.Property_String},
-                {"contexts", FieldTypes.Property_SqlArray},
+                {"contexts", FieldTypes.Property_String},
                 {"se_category", FieldTypes.Property_String},
                 {"se_action", FieldTypes.Property_String},
                 {"se_label", FieldTypes.Property_String},
                 {"se_property", FieldTypes.Property_String},
                 {"se_value", FieldTypes.Property_String},
-                {"unstruct_event", FieldTypes.Property_SqlMap},
+                {"unstruct_event", FieldTypes.Property_String},
                 {"tr_orderid", FieldTypes.Property_String},
                 {"tr_affiliation", FieldTypes.Property_String},
                 {"tr_total", FieldTypes.Property_Double},
@@ -171,7 +172,7 @@ namespace Snowplow.Analytics.Extractor
                 {"dvce_sent_tstamp", FieldTypes.Property_DateTime},
                 {"refr_domain_userid", FieldTypes.Property_String},
                 {"refr_device_tstamp", FieldTypes.Property_DateTime},
-                {"derived_contexts", FieldTypes.Property_SqlArray},
+                {"derived_contexts", FieldTypes.Property_String},
                 {"domain_sessionid", FieldTypes.Property_String},
                 {"derived_tstamp", FieldTypes.Property_DateTime},
                 {"event_vendor", FieldTypes.Property_String},
@@ -239,18 +240,6 @@ namespace Snowplow.Analytics.Extractor
                                         errors.Add($"Invalid columnType {actualColumnType} for columnName {columnName}; expected columnType: {typeof(string)}");
                                     }
                                     break;
-                                case FieldTypes.Property_SqlArray:
-                                    if (actualColumnType != typeof(SqlArray<object>))
-                                    {
-                                        errors.Add($"Invalid columnType {actualColumnType} for columnName {columnName}; expected columnType: {typeof(SqlArray<object>)}");
-                                    }
-                                    break;
-                                case FieldTypes.Property_SqlMap:
-                                    if (actualColumnType != typeof(SqlMap<string, object>))
-                                    {
-                                        errors.Add($"Invalid columnType {actualColumnType} for columnName {columnName}; expected columnType: {typeof(SqlMap<string, object>)}");
-                                    }
-                                    break;
                                 default:
                                     errors.Add($"Invalid columnName {columnName}");
                                     break;
@@ -261,18 +250,12 @@ namespace Snowplow.Analytics.Extractor
                             //check for context and unstruct field types
                             var contextKey = "contexts";
                             var unstructKey = "unstruct";
-                            if (string.Compare(contextKey, columnName.Substring(0, contextKey.Length)) == 0)
+                            if (string.Compare(contextKey, columnName.Substring(0, contextKey.Length)) == 0 ||
+                                string.Compare(unstructKey, columnName.Substring(0, unstructKey.Length)) == 0)
                             {
-                                if (actualColumnType != typeof(SqlArray<SqlMap<string, object>>))
+                                if (actualColumnType != typeof(string))
                                 {
-                                    errors.Add($"Invalid columnType {actualColumnType} for columnName {columnName}; expected columnType: {typeof(SqlArray<SqlMap<string, object>>)}");
-                                }
-                            }
-                            else if (string.Compare(unstructKey, columnName.Substring(0, unstructKey.Length)) == 0)
-                            {
-                                if (actualColumnType != typeof(SqlMap<string, object>))
-                                {
-                                    errors.Add($"Invalid columnType {actualColumnType} for columnName {columnName}; expected columnType: {typeof(SqlMap<string, object>)}");
+                                    errors.Add($"Invalid columnType {actualColumnType} for columnName {columnName}; expected columnType: {typeof(string)}");
                                 }
                             }
                             else
@@ -308,188 +291,27 @@ namespace Snowplow.Analytics.Extractor
         private static void ExtractDataFromJson(string json, IUpdatableRow output)
         {
             JObject transformedEvent = JObject.Parse(json);
-            var properties = transformedEvent.Properties().Select(p => p.Name).ToList();
-            properties.ForEach(property =>
+            foreach (var column in output.Schema)
             {
-                FieldTypes fieldType;
-                var propertyValue = transformedEvent[property];
-                if (ENRICHED_EVENT_FIELD_TYPES.TryGetValue(property, out fieldType))
+                JToken token = null;
+                object value = column.DefaultValue;
+
+                // All fields are represented as columns
+                //  Note: Each JSON row/payload can contain more or less columns than those specified in the row schema
+                //  We simply update the row for any column that matches (and in any order).
+                if (transformedEvent.TryGetValue(column.Name, out token) && token != null)
                 {
-                    switch (fieldType)
-                    {
-                        case FieldTypes.Property_Boolean:
-                            output.Set(property, (bool?)propertyValue);
-                            break;
-
-                        case FieldTypes.Property_Double:
-                            output.Set(property, (double?)propertyValue);
-                            break;
-
-                        case FieldTypes.Property_Int32:
-                            output.Set(property, (int?)propertyValue);
-                            break;
-
-                        case FieldTypes.Property_DateTime:
-                            output.Set(property, (DateTime?)propertyValue);
-                            break;
-
-                        case FieldTypes.Property_String:
-                            output.Set(property, (string)propertyValue);
-                            break;
-                    }
+                    // Note: We simply delegate to Json.Net for all data conversions
+                    //  For data conversions beyond what Json.Net supports, do an explicit projection:
+                    //      ie: SELECT DateTime.Parse(datetime) AS datetime, ...
+                    //  Note: Json.Net incorrectly returns null even for some non-nullable types (sbyte)
+                    //      We have to correct this by using the default(T) so it can fit into a row value
+                    value = EventFunctions.ConvertToken(token, column.Type) ?? column.DefaultValue;
                 }
-                else
-                {
-                    //no need to check for null as contexts and unstruct_event won't be added to transformedEvent if they are null
-                    //we have encountered contexts or unstruct_event
-                    var type = propertyValue.Type;
-                    if (type == JTokenType.Array)
-                    {
-                        //we have encountered contexts
-                        //context is an array of Objects
-                        var mapList = new List<SqlMap<string, object>>();
-                        foreach (var obj in propertyValue)
-                        {
-                            //convert JObject to dictionary
-                            var dict = ParseObject(new Dictionary<string, object>(), (JObject)obj);
-                            var map = new SqlMap<string, object>(dict);
-                            mapList.Add(map);
-                        }
-                        var contextArray = new SqlArray<SqlMap<string, object>>(mapList);
-                        output.Set(property, contextArray);
-                    }
-                    else if (type == JTokenType.Object)
-                    {
-                        //we have encountered unstruct_event
-                        var unstructDict = ParseObject(new Dictionary<string, object>(), (JObject)propertyValue);
-                        var unstructObj = new SqlMap<string, object>(unstructDict);
-                        output.Set(property, unstructObj);
-                    }
-                    else
-                    {
-                        //didn't expect this value
-                        throw new SnowplowEventExtractionException($"Unexpected value {transformedEvent[property]} encountered for field {property}");
-                    }
-                }
-            });
 
-        }
-
-        /// <summary>
-        /// Recusrively parses all the properties of JSON object and maps it to U-SQL datatypes
-        /// </summary>
-        /// <param name="dict">Dictionary which will store the mapping</param>
-        /// <param name="obj">JSON Object to be parsed</param>
-        /// <returns>Dictionary which contains all the JSON property-value mapping</returns>
-        private static Dictionary<string, object> ParseObject(Dictionary<string, object> dict, JObject obj)
-        {
-            var keys = obj.Properties().Select(p => p.Name).ToList();
-            keys.ForEach(key =>
-            {
-                var value = obj[key];
-                var type = value.Type;
-                if (type == JTokenType.Object)
-                {
-                    //it is a JSON Object
-                    var parseDict = ParseObject(new Dictionary<string, object>(), (JObject)value);
-                    //convert dict to SqlMap
-                    var sqlMap = new SqlMap<string, object>(parseDict);
-                    dict[key] = sqlMap;
-                }
-                else if (type == JTokenType.Array)
-                {
-                    //it is a JSON Array
-                    var parseList = ParseArray(new List<object>(), (JArray)value);
-                    //convert list of elements from JSON Array to SqlArray
-                    var sqlArray = new SqlArray<object>(parseList);
-                    dict[key] = sqlArray;
-                }
-                else
-                {
-                    //other types
-                    switch (type)
-                    {
-                        case JTokenType.Boolean:
-                            dict[key] = (bool?)value;
-                            break;
-
-                        case JTokenType.Float:
-                            dict[key] = (double?)value;
-                            break;
-
-                        case JTokenType.Integer:
-                            dict[key] = (long?)value;
-                            break;
-
-                        case JTokenType.Date:
-                            dict[key] = (DateTime?)value;
-                            break;
-
-                        case JTokenType.String:
-                        default:
-                            dict[key] = (string)value;
-                            break;
-                    }
-                }
-            });
-            return dict;
-        }
-
-        /// <summary>
-        /// Recusrively parses the elements of JSON Array and maps it to U-SQL datatypes
-        /// </summary>
-        /// <param name="list">List which will store the elements of Array</param>
-        /// <param name="array">JSON Array</param>
-        /// <returns>List of elements from JSON Array</returns>
-        private static List<object> ParseArray(List<object> list, JArray array)
-        {
-            foreach (var element in array)
-            {
-                var type = element.Type;
-                if (type == JTokenType.Object)
-                {
-                    //it is a JSON object
-                    var parseDict = ParseObject(new Dictionary<string, object>(), (JObject)element);
-                    //convert dict to SqlMap
-                    var sqlMap = new SqlMap<string, object>(parseDict);
-                    list.Add(sqlMap);
-                }
-                else if (type == JTokenType.Array)
-                {
-                    //it is a JSON Array
-                    var parseList = ParseArray(new List<object>(), (JArray)element);
-                    var sqlArray = new SqlArray<object>(parseList);
-                    list.Add(sqlArray);
-                }
-                else
-                {
-                    //other types
-                    switch (type)
-                    {
-                        case JTokenType.Boolean:
-                            list.Add((bool?)element);
-                            break;
-
-                        case JTokenType.Float:
-                            list.Add((double?)element);
-                            break;
-
-                        case JTokenType.Integer:
-                            list.Add((long?)element);
-                            break;
-
-                        case JTokenType.Date:
-                            list.Add((DateTime?)element);
-                            break;
-
-                        case JTokenType.String:
-                        default:
-                            list.Add((string)element);
-                            break;
-                    }
-                }
+                // Update
+                output.Set<object>(column.Name, value);
             }
-            return list;
         }
     }
 }

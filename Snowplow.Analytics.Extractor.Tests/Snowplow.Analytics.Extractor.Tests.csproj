@@ -59,6 +59,7 @@
   </Choose>
   <ItemGroup>
     <Compile Include="Event\EventExtractorTest.cs" />
+    <Compile Include="Function\EventFunctionsTest.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
