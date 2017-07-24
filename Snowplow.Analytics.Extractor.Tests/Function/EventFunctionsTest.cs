@@ -36,12 +36,18 @@ namespace Snowplow.Analytics.Extractor.Tests.Function
                 new Dictionary<string, string>() {
                   {"targetUrl", "http://www.example.com"},
                   {"elementClasses", "[\"foreground\"]"},
-                  {"elementId", "exampleLink"}
+                  {"elementId", "exampleLink"},
+                  {"boolField", "true" },
+                  {"intField", "1" },
+                  {"floatField", "20.2" }
                 };
             var inputJson = @"{
                   'targetUrl' : 'http://www.example.com',
                   'elementClasses' : [ 'foreground' ],
-                  'elementId' : 'exampleLink'
+                  'elementId' : 'exampleLink',
+                  'boolField' : true,
+                  'intField' : 1,
+                  'floatField' : 20.2
                 }";
             var actualMap = EventFunctions.GetUnstructuredEvent(inputJson);
             expectedDict.ToList().ForEach(pair => {
