@@ -27,6 +27,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 
 namespace Snowplow.Analytics.Extractor.Event
 {
@@ -192,82 +193,83 @@ namespace Snowplow.Analytics.Extractor.Event
         /// <exception cref="SnowplowEventExtractionException">thrown when invalid field in the input or invalid columnType in the schema is encountered.</exception>
         public override IEnumerable<IRow> Extract(IUnstructuredReader input, IUpdatableRow output)
         {
+            //check for schema
+            var totalCount = output.Schema.Count;
+            var errors = new List<string>();
+            for (int i = 0; i < totalCount; i++)
+            {
+                var columnName = output.Schema[i].Name;
+                var actualColumnType = output.Schema[i].Type;
+                FieldTypes expectedColumnType;
+
+                if (ENRICHED_EVENT_FIELD_TYPES.TryGetValue(columnName, out expectedColumnType))
+                {
+                    switch (expectedColumnType)
+                    {
+                        case FieldTypes.Property_Boolean:
+                            if (actualColumnType != typeof(bool?))
+                            {
+                                errors.Add($"Invalid columnType {actualColumnType} for columnName {columnName}; expected columnType: {typeof(bool?)}");
+                            }
+                            break;
+                        case FieldTypes.Property_Int32:
+                            if (actualColumnType != typeof(int?))
+                            {
+                                errors.Add($"Invalid columnType {actualColumnType} for columnName {columnName}; expected columnType: {typeof(int?)}");
+                            }
+                            break;
+                        case FieldTypes.Property_Double:
+                            if (actualColumnType != typeof(double?))
+                            {
+                                errors.Add($"Invalid columnType {actualColumnType} for columnName {columnName}; expected columnType: {typeof(double?)}");
+                            }
+                            break;
+                        case FieldTypes.Property_DateTime:
+                            if (actualColumnType != typeof(DateTime?))
+                            {
+                                errors.Add($"Invalid columnType {actualColumnType} for columnName {columnName}; expected columnType: {typeof(DateTime?)}");
+                            }
+                            break;
+                        case FieldTypes.Property_String:
+                            if (actualColumnType != typeof(string))
+                            {
+                                errors.Add($"Invalid columnType {actualColumnType} for columnName {columnName}; expected columnType: {typeof(string)}");
+                            }
+                            break;
+                        default:
+                            errors.Add($"Invalid columnName {columnName}");
+                            break;
+                    }
+                }
+                else
+                {
+                    //check for context and unstruct field types
+                    var contextKey = "contexts";
+                    var unstructKey = "unstruct";
+                    if (string.Compare(contextKey, columnName.Substring(0, contextKey.Length)) == 0 ||
+                        string.Compare(unstructKey, columnName.Substring(0, unstructKey.Length)) == 0)
+                    {
+                        if (actualColumnType != typeof(string))
+                        {
+                            errors.Add($"Invalid columnType {actualColumnType} for columnName {columnName}; expected columnType: {typeof(string)}");
+                        }
+                    }
+                    else
+                    {
+                        errors.Add($"Invalid columnName {columnName}");
+                    }
+                }
+            }
+            if (errors.Count() > 0)
+            {
+                throw new SnowplowEventExtractionException(errors);
+            }
+
             string line;
             using (var reader = new StreamReader(input.BaseStream))
             {
                 while ((line = reader.ReadLine()) != null)
                 {
-                    //check for schema
-                    var totalCount = output.Schema.Count;
-                    var errors = new List<string>();
-                    for (int i = 0; i < totalCount; i++)
-                    {
-                        var columnName = output.Schema[i].Name;
-                        var actualColumnType = output.Schema[i].Type;
-                        FieldTypes expectedColumnType;
-
-                        if (ENRICHED_EVENT_FIELD_TYPES.TryGetValue(columnName, out expectedColumnType))
-                        {
-                            switch (expectedColumnType)
-                            {
-                                case FieldTypes.Property_Boolean:
-                                    if (actualColumnType != typeof(bool?))
-                                    {
-                                        errors.Add($"Invalid columnType {actualColumnType} for columnName {columnName}; expected columnType: {typeof(bool?)}");
-                                    }
-                                    break;
-                                case FieldTypes.Property_Int32:
-                                    if (actualColumnType != typeof(int?))
-                                    {
-                                        errors.Add($"Invalid columnType {actualColumnType} for columnName {columnName}; expected columnType: {typeof(int?)}");
-                                    }
-                                    break;
-                                case FieldTypes.Property_Double:
-                                    if (actualColumnType != typeof(double?))
-                                    {
-                                        errors.Add($"Invalid columnType {actualColumnType} for columnName {columnName}; expected columnType: {typeof(double?)}");
-                                    }
-                                    break;
-                                case FieldTypes.Property_DateTime:
-                                    if (actualColumnType != typeof(DateTime?))
-                                    {
-                                        errors.Add($"Invalid columnType {actualColumnType} for columnName {columnName}; expected columnType: {typeof(DateTime?)}");
-                                    }
-                                    break;
-                                case FieldTypes.Property_String:
-                                    if (actualColumnType != typeof(string))
-                                    {
-                                        errors.Add($"Invalid columnType {actualColumnType} for columnName {columnName}; expected columnType: {typeof(string)}");
-                                    }
-                                    break;
-                                default:
-                                    errors.Add($"Invalid columnName {columnName}");
-                                    break;
-                            }
-                        }
-                        else
-                        {
-                            //check for context and unstruct field types
-                            var contextKey = "contexts";
-                            var unstructKey = "unstruct";
-                            if (string.Compare(contextKey, columnName.Substring(0, contextKey.Length)) == 0 ||
-                                string.Compare(unstructKey, columnName.Substring(0, unstructKey.Length)) == 0)
-                            {
-                                if (actualColumnType != typeof(string))
-                                {
-                                    errors.Add($"Invalid columnType {actualColumnType} for columnName {columnName}; expected columnType: {typeof(string)}");
-                                }
-                            }
-                            else
-                            {
-                                errors.Add($"Invalid columnName {columnName}");
-                            }
-                        }
-                    }
-                    if (errors.Count() > 0)
-                    {
-                        throw new SnowplowEventExtractionException(errors);
-                    }
                     try
                     {
                         //transform the input TSV
@@ -281,6 +283,7 @@ namespace Snowplow.Analytics.Extractor.Event
                     yield return output.AsReadOnly();
                 }
             }
+            
         }
 
         /// <summary>
