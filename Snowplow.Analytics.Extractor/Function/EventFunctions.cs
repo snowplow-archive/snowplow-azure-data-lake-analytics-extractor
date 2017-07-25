@@ -21,7 +21,6 @@ using System.Collections.Generic;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Microsoft.Analytics.Types.Sql;
-using System.Diagnostics;
 
 namespace Snowplow.Analytics.Extractor.Function
 {
@@ -190,11 +189,18 @@ namespace Snowplow.Analytics.Extractor.Function
                 {
                     return EventFunctions.GetTokenString(token);
                 }
-                else if (type.IsGenericType && 
-                         type.GetGenericTypeDefinition() == typeof(SqlMap<,>)  )
+                else if (type.IsGenericType)
                 {
-                    return GetObject(token.ToString(Formatting.None));
+                    if (type.GetGenericTypeDefinition() == typeof(SqlMap<,>))
+                    {
+                        return GetObject(token.ToString(Formatting.None));
+                    }
+                    else if (type.GetGenericTypeDefinition() == typeof(SqlArray<>))
+                    {
+                        return GetArray(token.ToString(Formatting.None));
+                    }
                 }
+
                 // We simply delegate to Json.Net for data conversions
                 return token.ToObject(type);
             }

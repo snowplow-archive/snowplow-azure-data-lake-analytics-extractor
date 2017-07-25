@@ -17,7 +17,6 @@
  */
 
 using Microsoft.Analytics.Interfaces;
-using Microsoft.Analytics.Types.Sql;
 using Microsoft.Analytics.UnitTest;
 using System;
 using System.Collections.Generic;
@@ -26,7 +25,6 @@ using System.Linq;
 using System.Text;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json.Linq;
-using Newtonsoft.Json;
 using Snowplow.Analytics.Extractor.Event;
 using Snowplow.Analytics.Extractor.Exceptions;
 
@@ -498,7 +496,7 @@ namespace Snowplow.Analytics.Extractor.Tests.Event
                 'true_tstamp': '2013-11-26T00:03:57.886Z'
                 }");
         }
-
+        
         private JObject GetOutputForInputWithoutContextAndUnstructEvent()
         {
             return JObject.Parse(@"{
@@ -781,7 +779,7 @@ namespace Snowplow.Analytics.Extractor.Tests.Event
                 {"event_fingerprint", FieldTypes.Property_String},
                 {"true_tstamp", FieldTypes.Property_DateTime}
             };
-        
+
         public IRow RowGenerator(JObject expected, Boolean isMalformed = false)
         {
             //Generate the schema
@@ -901,6 +899,34 @@ namespace Snowplow.Analytics.Extractor.Tests.Event
         }
 
         [TestMethod]
+        public void TestExtractorForMultipleEvents()
+        {
+            var expectedWithContext = GetOutputForInputWithContextAndUnstructEvent();
+            var inputWithContext = GetInputWithContextAndUnstructEvent();
+
+            var expectedWithoutContext = GetOutputForInputWithoutContextAndUnstructEvent();
+            var inputWithoutContext = GetInputWithoutContextAndUnstructEvent();
+
+            IUpdatableRow output = RowGenerator(expectedWithContext).AsUpdatable();
+            //convert data into TSV
+            var tsvWithContext = string.Join("\t", inputWithContext.Select(data => data.Value.Replace("\n", string.Empty)));
+            var tsvWithoutContext = string.Join("\t", inputWithoutContext.Select(data => data.Value.Replace("\n", string.Empty)));
+
+            var tsv = tsvWithContext + Environment.NewLine + tsvWithoutContext;
+            using (MemoryStream stream = GenerateStreamFromString(tsv))
+            {
+                //Read input file 
+                USqlStreamReader reader = new USqlStreamReader(stream);
+
+                EventExtractor extractor = new EventExtractor();
+                List<IRow> result = extractor.Extract(reader, output).ToList();
+                Assert.AreEqual(2, result.Count());
+                Assert.IsTrue(CompareValues(expectedWithContext, result[0]));
+                Assert.IsTrue(CompareValues(expectedWithoutContext, result[1]));
+            }
+        }
+
+        [TestMethod]
         public void TestExtractorWithMalformedColumnTypes()
         {
             var expected = GetOutputForInputWithoutContextAndUnstructEvent();
@@ -920,7 +946,7 @@ namespace Snowplow.Analytics.Extractor.Tests.Event
                 {
                     extractor.Extract(reader, output).ToList();
                 }
-                catch(SnowplowEventExtractionException se)
+                catch (SnowplowEventExtractionException se)
                 {
                     int errorCount = se.ErrorMessages.Count();
                     Assert.AreEqual(18, errorCount);
@@ -942,7 +968,19 @@ namespace Snowplow.Analytics.Extractor.Tests.Event
                  var expectedValue = expectedObject[key];
                  var type = expectedObject[key].GetType();
                  FieldTypes fieldType;
-                 if (ENRICHED_EVENT_FIELD_TYPES.TryGetValue(key, out fieldType))
+
+                 var unstructKey = "unstruct_event_com_snowplowanalytics_snowplow_link_click_1";
+                 var contextKeys = new List<string>() { "contexts_org_schema_web_page_1", "contexts_org_w3_performance_timing_1",
+                                                        "contexts_com_snowplowanalytics_snowplow_ua_parser_context_1" };
+                 if (contextKeys.Any(item => (string.Compare(item, key, StringComparison.CurrentCulture) == 0)) ||
+                    string.Compare(unstructKey, key, StringComparison.CurrentCulture) == 0
+                 )
+                 {
+                     var actualValue = actual.Get<string>(key);
+                     var actualToken = JToken.Parse(actualValue);
+                     isEqual = JToken.DeepEquals(expectedValue, actualToken);
+                 }
+                 else if (ENRICHED_EVENT_FIELD_TYPES.TryGetValue(key, out fieldType))
                  {
                      switch (fieldType)
                      {
@@ -975,37 +1013,31 @@ namespace Snowplow.Analytics.Extractor.Tests.Event
                              break;
 
                          case FieldTypes.Property_String:
-                             if ((string)(expectedValue) != actual.Get<string>(key))
+                             var actualValue = actual.Get<string>(key);
+                             if (!string.IsNullOrEmpty((string)expectedValue))
                              {
-                                 isEqual = false;
+                                 isEqual = ((string)expectedValue).CompareTo(actualValue) == 0;
+                             }
+                             else
+                             {
+                                 isEqual = string.IsNullOrEmpty(actualValue);
                              }
                              break;
                      }
                  }
                  else
                  {
-                     var unstructKey = "unstruct_event_com_snowplowanalytics_snowplow_link_click_1";
-                     var contextKeys = new List<string>() { "contexts_org_schema_web_page_1", "contexts_org_w3_performance_timing_1", "contexts_com_snowplowanalytics_snowplow_ua_parser_context_1" };
-                     if (contextKeys.Any(item => (string.Compare(item, key, StringComparison.CurrentCulture) == 0)) ||
-                        string.Compare(unstructKey, key, StringComparison.CurrentCulture) == 0
-                     )
-                     {
-                         var actualValue = actual.Get<string>(key);
-                         var actualToken = JToken.Parse(actualValue);
-                         isEqual = JToken.DeepEquals(expectedValue, actualToken);
-                     }
-                  
+                     Assert.Fail($"Invalid column {key}");
                  }
 
              });
 
             return isEqual;
         }
-
+        
         private static MemoryStream GenerateStreamFromString(string value)
         {
             return new MemoryStream(Encoding.UTF8.GetBytes(value ?? ""));
         }
-        
     }
 }
