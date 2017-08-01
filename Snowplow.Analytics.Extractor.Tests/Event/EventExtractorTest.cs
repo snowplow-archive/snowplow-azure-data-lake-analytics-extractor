@@ -66,7 +66,7 @@ namespace Snowplow.Analytics.Extractor.Tests.Event
                 { "geo_zipcode", "94109"},
                 { "geo_latitude", "37.443604"},
                 { "geo_longitude", "-122.4124"},
-                { "geo_region_name", "Florida"},
+                { "geo_region_name", "Donets'ka Oblast'"},
                 { "ip_isp", "FDN Communications"},
                 { "ip_organization", "Bouygues Telecom"},
                 { "ip_domain", "nuvox.net"},
@@ -341,7 +341,7 @@ namespace Snowplow.Analytics.Extractor.Tests.Event
                 'geo_zipcode' : '94109',
                 'geo_latitude' : 37.443604,
                 'geo_longitude' : -122.4124,
-                'geo_region_name' : 'Florida',
+                'geo_region_name' : 'Donets\'ka Oblast\'',
                 'ip_isp' : 'FDN Communications',
                 'ip_organization' : 'Bouygues Telecom',
                 'ip_domain' : 'nuvox.net',
@@ -496,7 +496,7 @@ namespace Snowplow.Analytics.Extractor.Tests.Event
                 'true_tstamp': '2013-11-26T00:03:57.886Z'
                 }");
         }
-        
+
         private JObject GetOutputForInputWithoutContextAndUnstructEvent()
         {
             return JObject.Parse(@"{
@@ -1034,7 +1034,7 @@ namespace Snowplow.Analytics.Extractor.Tests.Event
 
             return isEqual;
         }
-        
+
         private static MemoryStream GenerateStreamFromString(string value)
         {
             return new MemoryStream(Encoding.UTF8.GetBytes(value ?? ""));
